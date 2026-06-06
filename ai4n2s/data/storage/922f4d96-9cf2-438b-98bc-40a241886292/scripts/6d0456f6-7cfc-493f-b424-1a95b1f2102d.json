@@ -1,0 +1,64 @@
+{
+  "script": {
+    "metadata": {
+      "title": "三体·黑暗森林（节选）",
+      "author": "刘慈欣（原著） / AI 辅助改编",
+      "based_on": "《三体II：黑暗森林》",
+      "version": "draft-0.1",
+      "date": "2026-06-06",
+      "logline": "面对三体人的入侵，人类启动面壁计划，四位面壁者展开绝望反击。",
+      "genre": [
+        "科幻",
+        "剧情"
+      ]
+    },
+    "characters": [
+      {
+        "id": "luo_ji",
+        "name": "罗辑",
+        "description": "社会学博士，被选为面壁者。"
+      },
+      {
+        "id": "da_shi",
+        "name": "大史",
+        "description": "资深刑警，罗辑的保镖。"
+      }
+    ],
+    "scenes": [
+      {
+        "id": "sc_1",
+        "heading": "外. 杨冬墓前 - 日",
+        "content": [
+          {
+            "type": "action",
+            "text": "荒凉的墓地，只有一块简单的石碑。罗辑独自站在墓前，大史在不远处抽烟。"
+          },
+          {
+            "type": "character",
+            "name": "罗辑",
+            "parenthetical": "（低声）",
+            "dialogue": "你真是个神秘的女人，杨冬。\n直到你死后，我才发现我对你一无所知。"
+          },
+          {
+            "type": "action",
+            "text": "大史踩灭烟头，走过来。"
+          },
+          {
+            "type": "character",
+            "name": "大史",
+            "dialogue": "走吧，罗教授。这里风大。"
+          },
+          {
+            "type": "transition",
+            "text": "切至："
+          }
+        ],
+        "notes": "第一幕氛围铺垫，后续可加入更多关于\"黑暗森林\"的隐喻。",
+        "tags": [
+          "情感",
+          "开场"
+        ]
+      }
+    ]
+  }
+}
