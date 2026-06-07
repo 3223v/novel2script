@@ -9,21 +9,26 @@ import NovelService from './novel-service';
 const STORAGE_DIR = path.join(process.cwd(), 'data', 'storage');
 
 export class ScriptService {
-  // 创建新剧本
-  static create(novelId: string, version: string, scriptData: ScriptYAML): ApiResponse<Script> {
+  // 创建新剧本（novelId 可选 — 允许独立剧本）
+  static create(novelId: string | undefined, version: string, scriptData: ScriptYAML): ApiResponse<Script> {
     try {
-      const novel = NovelService.getById(novelId);
-      if (!novel) {
-        return { success: false, error: '小说不存在' };
+      if (novelId) {
+        const novel = NovelService.getById(novelId);
+        if (!novel) return { success: false, error: '小说不存在' };
       }
 
       const id = uuidv4();
       const now = Date.now();
+      const folderId = novelId || 'standalone';
       const fileName = `${id}.json`;
-      const filePath = path.join(novelId, 'scripts', fileName);
+      const filePath = path.join(folderId, 'scripts', fileName);
+
+      // 确保目录存在
+      const fullPath = path.join(STORAGE_DIR, filePath);
+      const dir = path.dirname(fullPath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
       // 保存 JSON 文件
-      const fullPath = path.join(STORAGE_DIR, filePath);
       fs.writeFileSync(fullPath, JSON.stringify(scriptData, null, 2), 'utf-8');
 
       const stmt = db.prepare(`
@@ -31,7 +36,7 @@ export class ScriptService {
         VALUES (?, ?, ?, 'json', ?, ?, ?, '{}')
       `);
 
-      stmt.run(id, novelId, version, filePath, now, now);
+      stmt.run(id, novelId || null, version, filePath, now, now);
 
       const script = this.getById(id);
       return { success: true, data: script! };
@@ -57,14 +62,19 @@ export class ScriptService {
   static getByNovelId(novelId: string): ApiResponse<Script[]> {
     try {
       const stmt = db.prepare('SELECT * FROM scripts WHERE novel_id = ? ORDER BY created_at DESC');
+      const rows = stmt.all(novelId) as Script[];
+      return { success: true, data: rows.map((row) => ({ ...row, generation_config: JSON.parse(row.generation_config as unknown as string) })) };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  }
+
+  // 获取所有独立剧本（novel_id IS NULL）
+  static getStandalone(): ApiResponse<Script[]> {
+    try {
+      const stmt = db.prepare('SELECT * FROM scripts WHERE novel_id IS NULL ORDER BY created_at DESC');
       const rows = stmt.all() as Script[];
-
-      const scripts = rows.map(row => ({
-        ...row,
-        generation_config: JSON.parse(row.generation_config as unknown as string),
-      }));
-
-      return { success: true, data: scripts };
+      return { success: true, data: rows.map((row) => ({ ...row, generation_config: JSON.parse(row.generation_config as unknown as string) })) };
     } catch (error) {
       return { success: false, error: (error as Error).message };
     }
@@ -178,6 +188,11 @@ export class ScriptService {
     } catch (error) {
       return { success: false, error: (error as Error).message };
     }
+  }
+
+  // 更新关联小说
+  static updateNovelId(id: string, novelId: string | null): void {
+    db.prepare('UPDATE scripts SET novel_id = ?, updated_at = ? WHERE id = ?').run(novelId, Date.now(), id);
   }
 
   // 更新版本

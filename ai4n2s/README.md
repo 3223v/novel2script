@@ -1,36 +1,39 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI4N2S — 小说转剧本系统
 
-## Getting Started
+基于 Next.js 16 + SQLite + YAML 构建的 AI 辅助小说转剧本数据管理系统。
 
-First, run the development server:
+## 功能
+
+- **小说管理** — 创建/删除小说，上传源文件（PDF、DOCX、TXT）
+- **结构化分析** — 将小说文本分析为结构化 JSON（章节、角色、地点、场景）
+- **剧本生成** — 从结构化小说数据生成标准剧本格式（场景、对话、转场）
+- **剧本编辑** — 可视化编辑场景、角色、对话，支持手动与 AI 辅助
+- **YAML 导出** — 剧本支持导出为 YAML 格式，便于人工编辑和版本管理
+
+## 快速开始
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cd ai4n2s
+npm install
+npm run seed    # 填充示例数据
+npm run dev     # 启动开发服务器
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+打开 http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 项目文档
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- [架构总览](docs/architecture.md) — 架构、目录、技术栈
+- [API 参考](docs/api.md) — 全部 API 端点
+- [数据模型](docs/data-model.md) — 数据库、JSON 结构、存储
+- [策略指南](docs/strategies.md) — 算法实现详解
+- [配置指南](docs/configuration.md) — LLM / 向量数据库 / OCR 配置
+- [EPUB 参考](docs/epub-strategy.md) — EPUB 解析参考实现
 
-## Learn More
+## 设计风格
 
-To learn more about Next.js, take a look at the following resources:
+白色背景 + 黑色线框的复古蓝图风格。锐利边缘、纯黑边框、monospace 字体。
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 技术栈
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Next.js 16 · TypeScript · Tailwind CSS 4 · SQLite · YAML

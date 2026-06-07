@@ -100,6 +100,26 @@ export class NovelService {
     }
   }
 
+  // 更新小说标题
+  static updateTitle(id: string, title: string): ApiResponse<void> {
+    try {
+      db.prepare('UPDATE novels SET title = ?, updated_at = ? WHERE id = ?').run(title, Date.now(), id);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  }
+
+  // 更新小说作者
+  static updateAuthor(id: string, author: string): ApiResponse<void> {
+    try {
+      db.prepare('UPDATE novels SET author = ?, updated_at = ? WHERE id = ?').run(author, Date.now(), id);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  }
+
   // 设置归一化数据路径
   static setNormalizedPath(id: string, normalizedPath: string): ApiResponse<void> {
     try {

@@ -41,20 +41,20 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { data, version } = body;
+    const { data, version, novelId } = body;
 
     if (data) {
       const result = ScriptService.updateContent(id, data);
-      if (!result.success) {
-        return NextResponse.json(result, { status: 500 });
-      }
+      if (!result.success) return NextResponse.json(result, { status: 500 });
     }
 
-    if (version) {
+    if (version !== undefined) {
       const result = ScriptService.updateVersion(id, version);
-      if (!result.success) {
-        return NextResponse.json(result, { status: 500 });
-      }
+      if (!result.success) return NextResponse.json(result, { status: 500 });
+    }
+
+    if (novelId !== undefined) {
+      ScriptService.updateNovelId(id, novelId || null);
     }
 
     const script = ScriptService.getById(id);

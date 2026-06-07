@@ -43,12 +43,14 @@ export async function PATCH(
 
     if (status) {
       const result = NovelService.updateStatus(id, status);
-      if (!result.success) {
-        return NextResponse.json(result, { status: 500 });
-      }
+      if (!result.success) return NextResponse.json(result, { status: 500 });
     }
-
-    // 可以扩展其他字段的更新
+    if (title) {
+      NovelService.updateTitle(id, title);
+    }
+    if (author) {
+      NovelService.updateAuthor(id, author);
+    }
 
     const novel = NovelService.getById(id);
     return NextResponse.json({ success: true, data: novel });
