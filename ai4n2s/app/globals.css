@@ -1,19 +1,86 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f9fafb;
-  --foreground: #171717;
+  --color-bg: #ffffff;
+  --color-fg: #000000;
+  --color-border: #000000;
+  --color-muted: #666666;
+  --color-surface: #fafafa;
+  --border-width: 1px;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: var(--color-bg);
+  --color-foreground: var(--color-fg);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
+* {
+  box-sizing: border-box;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Wireframe base utilities ── */
+
+.wireframe-border {
+  border: 1px solid var(--color-border);
+}
+
+.wireframe-shadow {
+  box-shadow: 4px 4px 0 var(--color-border);
+}
+
+.wireframe-shadow-sm {
+  box-shadow: 2px 2px 0 var(--color-border);
+}
+
+/* ── Sidebar animation ── */
+
+.sidebar-enter {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.sidebar-exit {
+  transform: translateX(-100%);
+  opacity: 0;
+}
+
+/* ── Modal overlay animation ── */
+
+.modal-overlay-enter {
+  opacity: 1;
+}
+
+.modal-overlay-exit {
+  opacity: 0;
+}
+
+/* ── Scrollbar styling ── */
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-surface);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border: 1px solid var(--color-border);
+}
+
+/* ── Focus ring ── */
+
+*:focus-visible {
+  outline: 2px solid var(--color-fg);
+  outline-offset: 2px;
 }

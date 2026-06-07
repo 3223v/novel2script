@@ -57,7 +57,7 @@ export class ScriptService {
   static getByNovelId(novelId: string): ApiResponse<Script[]> {
     try {
       const stmt = db.prepare('SELECT * FROM scripts WHERE novel_id = ? ORDER BY created_at DESC');
-      const rows = stmt.all() as Script[];
+      const rows = stmt.all(novelId) as Script[];
 
       const scripts = rows.map(row => ({
         ...row,
