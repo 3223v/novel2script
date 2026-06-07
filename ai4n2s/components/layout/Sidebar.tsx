@@ -33,11 +33,24 @@ interface SidebarProps {
 export default function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
 
-  // 子导航：当访问剧本相关页面时，加载剧本列表
+  // 剧本子导航
   const [scriptItems, setScriptItems] = useState<ScriptNavItem[]>([]);
   const [loadingScripts, setLoadingScripts] = useState(false);
 
+  // 小说子导航
+  const [novelItems, setNovelItems] = useState<Array<{ id: string; title: string }>>([]);
+  const [loadingNovels, setLoadingNovels] = useState(false);
+
+  // 小说章节子导航
+  const [chapterItems, setChapterItems] = useState<Array<{ index: number; title: string }>>([]);
+  const [loadingChapters, setLoadingChapters] = useState(false);
+
   const isScriptsRoute = pathname.startsWith('/scripts');
+  const isNovelsRoute = pathname.startsWith('/novels');
+  const isReadRoute = pathname.startsWith('/novels/') && pathname.includes('/read');
+
+  const readNovelId = isReadRoute ? pathname.split('/')[2] : null;
+  const activeNovelId = pathname.match(/^\/novels\/([^/]+)/)?.[1] || null;
 
   useEffect(() => {
     if (isScriptsRoute) {
@@ -53,14 +66,10 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
                 const data = await res.json();
                 if (data.success && data.data.scripts) {
                   for (const script of data.data.scripts) {
-                    items.push({
-                      id: script.id,
-                      label: novel.title,
-                      version: script.version,
-                    });
+                    items.push({ id: script.id, label: novel.title, version: script.version });
                   }
                 }
-              } catch { /* 跳过加载失败的 */ }
+              } catch { /* skip */ }
             }
           }
           setScriptItems(items);
@@ -68,16 +77,46 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
         .catch(() => {})
         .finally(() => setLoadingScripts(false));
     }
-  }, [isScriptsRoute, pathname]);
+
+    if (isNovelsRoute) {
+      setLoadingNovels(true);
+      fetch('/api/novels')
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.success && data.data) {
+            setNovelItems(data.data.map((n: { id: string; title: string }) => ({ id: n.id, title: n.title })));
+          }
+        })
+        .catch(() => {})
+        .finally(() => setLoadingNovels(false));
+    }
+  }, [isScriptsRoute, isNovelsRoute, pathname]);
+
+  useEffect(() => {
+    if (isReadRoute && readNovelId) {
+      setLoadingChapters(true);
+      fetch(`/api/novels/${readNovelId}/normalized`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.success && data.data?.chapters) {
+            setChapterItems(data.data.chapters.map((ch: { index: number; title: string }) => ({
+              index: ch.index,
+              title: ch.title,
+            })));
+          }
+        })
+        .catch(() => {})
+        .finally(() => setLoadingChapters(false));
+    }
+  }, [isReadRoute, readNovelId, pathname]);
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
     return pathname.startsWith(href);
   };
 
-  const isScriptActive = (scriptId: string) => {
-    return pathname === `/scripts/${scriptId}`;
-  };
+  const isScriptActive = (scriptId: string) => pathname === `/scripts/${scriptId}`;
+  const isChapterActive = (idx: number) => pathname === `/novels/${readNovelId}/read`;
 
   return (
     <>
@@ -161,22 +200,41 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           </ul>
         </nav>
 
+        {/* 小说子导航 — 仅在小说路由下显示 */}
+        {isNovelsRoute && (
+          <div className="flex-1 overflow-y-auto border-t border-gray-200">
+            <div className="px-4 py-2">
+              <p className="text-xs text-gray-400 uppercase tracking-wider">小说列表</p>
+            </div>
+            {loadingNovels ? (
+              <p className="px-4 py-2 text-xs text-gray-300">加载中...</p>
+            ) : novelItems.length > 0 ? (
+              <ul>
+                {novelItems.map((item) => (
+                  <li key={item.id}>
+                    <Link
+                      href={`/novels/${item.id}/read`}
+                      onClick={onClose}
+                      className={`block px-4 py-2 text-xs transition-colors duration-100 border-l-2 ${activeNovelId === item.id ? 'border-black bg-gray-100 font-semibold text-black' : 'border-transparent hover:bg-gray-50 hover:border-gray-300 text-gray-600'}`}
+                    >
+                      <span className="truncate block">{item.title}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="px-4 py-2 text-xs text-gray-300">暂无小说</p>
+            )}
+          </div>
+        )}
+
         {/* 剧本子导航 — 仅在剧本路由下显示 */}
         {isScriptsRoute && (
           <div className="flex-1 overflow-y-auto border-t border-gray-200">
             <div className="px-4 py-2 flex justify-between items-center">
-              <p className="text-xs text-gray-400 uppercase tracking-wider">
-                剧本列表
-              </p>
-              <Link
-                href="/scripts"
-                onClick={onClose}
-                className="text-xs text-gray-400 hover:text-black"
-              >
-                + 新建
-              </Link>
+              <p className="text-xs text-gray-400 uppercase tracking-wider">剧本列表</p>
+              <Link href="/scripts" onClick={onClose} className="text-xs text-gray-400 hover:text-black">+ 新建</Link>
             </div>
-
             {loadingScripts ? (
               <p className="px-4 py-2 text-xs text-gray-300">加载中...</p>
             ) : scriptItems.length > 0 ? (
@@ -186,16 +244,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
                     <Link
                       href={`/scripts/${item.id}`}
                       onClick={onClose}
-                      className={`
-                        block px-4 py-2 text-xs
-                        transition-colors duration-100
-                        border-l-2
-                        ${
-                          isScriptActive(item.id)
-                            ? 'border-black bg-gray-100 font-semibold text-black'
-                            : 'border-transparent hover:bg-gray-50 hover:border-gray-300 text-gray-600'
-                        }
-                      `}
+                      className={`block px-4 py-2 text-xs transition-colors duration-100 border-l-2 ${isScriptActive(item.id) ? 'border-black bg-gray-100 font-semibold text-black' : 'border-transparent hover:bg-gray-50 hover:border-gray-300 text-gray-600'}`}
                     >
                       <span className="truncate block">{item.label}</span>
                       <span className="text-gray-400">{item.version}</span>
@@ -204,15 +253,46 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
                 ))}
               </ul>
             ) : (
-              <p className="px-4 py-2 text-xs text-gray-300">
-                暂无剧本，请从小说详情页创建。
-              </p>
+              <p className="px-4 py-2 text-xs text-gray-300">暂无剧本，请从小说详情页创建。</p>
+            )}
+          </div>
+        )}
+
+        {/* 章节子导航 — 仅在小说阅读页显示 */}
+        {isReadRoute && readNovelId && (
+          <div className="flex-1 overflow-y-auto border-t border-gray-200">
+            <div className="px-4 py-2 flex justify-between items-center">
+              <p className="text-xs text-gray-400 uppercase tracking-wider">目录</p>
+              <Link href={`/novels/${readNovelId}`} onClick={onClose} className="text-xs text-gray-400 hover:text-black">编辑</Link>
+            </div>
+            {loadingChapters ? (
+              <p className="px-4 py-2 text-xs text-gray-300">加载中...</p>
+            ) : chapterItems.length > 0 ? (
+              <ul>
+                {chapterItems.map((ch) => (
+                  <li key={ch.index}>
+                    <button
+                      onClick={() => {
+                        const el = document.querySelector(`[data-chapter="${ch.index}"]`);
+                        el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        onClose();
+                      }}
+                      className={`w-full text-left block px-4 py-2 text-xs transition-colors duration-100 border-l-2 ${isChapterActive(ch.index) ? 'border-black bg-gray-100 font-semibold text-black' : 'border-transparent hover:bg-gray-50 hover:border-gray-300 text-gray-600'}`}
+                    >
+                      <span className="text-gray-400 mr-1 font-mono">{ch.index + 1}.</span>
+                      <span className="truncate">{ch.title}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="px-4 py-2 text-xs text-gray-300">暂无章节数据</p>
             )}
           </div>
         )}
 
         {/* 无子导航时占位 */}
-        {!isScriptsRoute && <div className="flex-1" />}
+        {!isScriptsRoute && !isNovelsRoute && !isReadRoute && <div className="flex-1" />}
 
         {/* 底部版本号 */}
         <div className="border-t border-black px-4 py-3">

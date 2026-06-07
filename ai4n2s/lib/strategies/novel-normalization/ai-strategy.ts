@@ -1,40 +1,26 @@
-/**
- * 基于 AI 工作流的小说结构化策略
- *
- * 分步骤调用 LLM 完成:
- *   1. 章节切分与摘要
- *   2. 角色识别与关系分析
- *   3. 地点识别
- *   4. 场景切分与描述
- *   5. 情节摘要生成
- *
- * 每个步骤可独立调用 LLM，也可以合并为单次调用 (取决于文本长度)。
- * 当前为骨架实现，调用 Mock LLM 返回占位内容。
- */
-
 import type {
   NovelStructuringStrategy,
   NovelStructuringInput,
   StructuringProgress,
 } from '@/lib/pipeline/types';
-import type { NormalizedNovel, Character, Location, Chapter, Scene } from '@/lib/types';
+import type { NormalizedNovel, Character, NovelChapter } from '@/lib/types';
 import { LLMFactory } from '@/lib/modules/llm';
 import { RAGFactory } from '@/lib/modules/rag';
 
-// ── LLM Prompts ──
-
-const SYSTEM_PROMPT = `你是一位专业的小说分析专家。你的任务是将小说文本结构化，提取:
-- 章节结构 (章节标题、索引、摘要)
-- 角色列表 (姓名、别名、描述、性格、角色定位)
-- 地点列表 (名称、描述)
-- 场景列表 (所在章节、场景标题、原文片段、出现角色、出现地点)
-- 情节摘要
-
-请以 JSON 格式返回结果。`;
-
+/**
+ * AI 工作流策略
+ *
+ * 分步调用 LLM:
+ *   1. 章节切分（先正则粗切，LLM 补充摘要）
+ *   2. 每章的角色 / 地点提取
+ *   3. 全书角色汇总
+ *   4. 情节摘要生成
+ *
+ * 当前为骨架实现 — 配置真实 LLM Provider 后产出实际结果。
+ */
 export class AIStructuringStrategy implements NovelStructuringStrategy {
   readonly name = 'ai-workflow';
-  readonly description = 'AI 工作流策略 — 使用 LLM 逐步分析小说文本，提取结构化信息';
+  readonly description = 'AI 策略 — 使用 LLM 逐步分析，生成章节摘要和角色/地点信息';
 
   async execute(
     input: NovelStructuringInput,
@@ -45,68 +31,72 @@ export class AIStructuringStrategy implements NovelStructuringStrategy {
 
     onProgress?.('start', 'AI 分析开始...');
 
-    // 如果文本太长，先建立 RAG 索引
+    // 长文本建立 RAG 索引
     if (text.length > 5000) {
-      onProgress?.('indexing', `文本较长 (${text.length} 字符)，建立 RAG 索引...`);
+      onProgress?.('indexing', '文本较长，建立 RAG 索引...');
       await RAGFactory.indexDocument(novel.id, text, { chunkSize: 3000, overlap: 300 });
     }
 
     // 1. 元数据
-    const metadata: NormalizedNovel['metadata'] = {
+    const metadata = {
       title: novel.title,
       author: novel.author || '未知',
       word_count: text.replace(/\s/g, '').length,
       analysis_date: Date.now(),
     };
 
-    // 2. 章节检测 (优先用正则快速检测，AI 补充摘要)
-    onProgress?.('chapters', 'AI 分析章节结构...');
-    const chapters = await this.analyzeChapters(text, novel.title);
+    // 2. 章节切分（先用正则粗切）
+    onProgress?.('chapters', '切分章节...');
+    const chapters = await this.buildChapters(text, novel.title);
 
-    // 3. 角色识别
-    onProgress?.('characters', 'AI 识别角色...');
-    const characters = await this.analyzeCharacters(text);
+    // 3. 每章 AI 分析（角色 + 地点 + 摘要）
+    onProgress?.('analyze', 'AI 分析每章内容...');
+    for (let i = 0; i < chapters.length; i++) {
+      onProgress?.('chapter', `分析第 ${i + 1}/${chapters.length} 章...`);
+      await this.enrichChapter(chapters[i]);
+    }
 
-    // 4. 地点识别
-    onProgress?.('locations', 'AI 识别地点...');
-    const locations = await this.analyzeLocations(text);
+    // 4. 全书角色汇总
+    onProgress?.('characters', '汇总角色...');
+    const characters = this.collectCharacters(chapters);
 
-    // 5. 场景切分
-    onProgress?.('scenes', 'AI 切分场景...');
-    const scenes = await this.analyzeScenes(text, chapters);
-
-    // 6. 情节摘要
-    onProgress?.('summary', 'AI 生成情节摘要...');
-    const plot_summary = await this.generatePlotSummary(text, metadata, chapters, characters);
+    // 5. 情节摘要
+    onProgress?.('summary', '生成情节摘要...');
+    const plot_summary = await this.generatePlotSummary(metadata, chapters, characters);
 
     onProgress?.('done', 'AI 分析完成');
 
-    return {
-      metadata,
-      characters,
-      locations,
-      plot_summary,
-      chapters,
-      scenes,
-    };
+    return { metadata, characters, plot_summary, chapters };
   }
 
-  private async analyzeChapters(text: string, title: string): Promise<Chapter[]> {
-    // 先用正则快速检测章节标题
-    const chapterMatches = text.match(/(?:第[一二三四五六七八九十百千\d]+[章节回]|Chapter\s+\d+)/g) || [];
-    if (chapterMatches.length === 0) {
-      return [{ index: 0, title, summary: '全文（未检测到章节）' }];
+  // ── 章节切分 ──
+
+  private async buildChapters(text: string, fallbackTitle: string): Promise<NovelChapter[]> {
+    if (!text) {
+      return [{ index: 0, title: fallbackTitle, summary: '', content: '', characters: [], locations: [] }];
     }
 
-    // AI 为每个章节生成摘要
-    const chapters: Chapter[] = [];
-    for (let i = 0; i < chapterMatches.length; i++) {
-      const chTitle = chapterMatches[i];
-      const nextCh = chapterMatches[i + 1];
-      const chStart = text.indexOf(chTitle);
-      const chEnd = nextCh ? text.indexOf(nextCh, chStart + 1) : text.length;
-      const chText = chStart >= 0 ? text.slice(chStart, Math.min(chStart + 2000, chEnd)) : '';
+    const chapterPattern = /(?:^|\n)\s*(第[一二三四五六七八九十百千\d]+[章节回])\s*[^\n]*/g;
+    const matches = [...text.matchAll(chapterPattern)];
 
+    if (matches.length <= 1) {
+      return [{
+        index: 0,
+        title: fallbackTitle,
+        summary: '全文（未检测到分章）',
+        content: text,
+        characters: [],
+        locations: [],
+      }];
+    }
+
+    const chapters: NovelChapter[] = [];
+    for (let i = 0; i < matches.length; i++) {
+      const start = matches[i].index!;
+      const end = i + 1 < matches.length ? matches[i + 1].index! : text.length;
+      const chText = text.slice(start, end).trim();
+
+      // AI 生成章节摘要
       let summary = '';
       try {
         const result = await LLMFactory.complete(
@@ -115,90 +105,79 @@ export class AIStructuringStrategy implements NovelStructuringStrategy {
         );
         summary = result.content.replace(/^["']|["']$/g, '').trim();
       } catch {
-        summary = '摘要生成失败（LLM 未配置）';
+        summary = `第 ${i + 1} 章（AI 未配置）`;
       }
 
-      chapters.push({ index: i, title: chTitle, summary });
+      chapters.push({
+        index: i,
+        title: matches[i][1] || `第 ${i + 1} 章`,
+        summary,
+        content: chText,
+        characters: [],
+        locations: [],
+      });
     }
 
     return chapters;
   }
 
-  private async analyzeCharacters(text: string): Promise<Character[]> {
-    const sampleText = text.slice(0, 10000);
+  // ── 单章丰富 ──
+
+  private async enrichChapter(ch: NovelChapter): Promise<void> {
+    const sample = ch.content.slice(0, 3000);
+    if (!sample) return;
 
     try {
       const result = await LLMFactory.complete(
-        `分析以下小说片段，列出所有角色（姓名、角色定位）:\n\n${sampleText}\n\n请以 JSON 数组格式返回，格式: [{"name": "角色名", "role": "主角/配角/龙套", "description": "简短描述"}]`,
-        { temperature: 0.3, maxTokens: 2000 }
+        `分析以下小说章节，提取:\n1. 角色列表（姓名，逗号分隔）\n2. 地点列表（名称，逗号分隔）\n\n章节内容:\n${sample}\n\n请严格按以下格式输出:\n角色: 名1, 名2\n地点: 地1, 地2`,
+        { temperature: 0.3, maxTokens: 500 }
       );
 
-      const jsonMatch = result.content.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        return parsed.map((c: Record<string, string>, i: number) => ({
-          id: `char-ai-${i + 1}`,
-          name: c.name || `角色${i + 1}`,
-          role: c.role,
-          description: c.description,
-        }));
-      }
-    } catch {
-      // LLM 不可用则返回空
-    }
+      const charMatch = result.content.match(/角色[:：]\s*(.+)/);
+      const locMatch = result.content.match(/地点[:：]\s*(.+)/);
 
-    return [];
+      if (charMatch) ch.characters = charMatch[1].split(/[,，、]/).map((s) => s.trim()).filter(Boolean);
+      if (locMatch) ch.locations = locMatch[1].split(/[,，、]/).map((s) => s.trim()).filter(Boolean);
+    } catch {
+      // LLM 不可用时保持空列表
+    }
   }
 
-  private async analyzeLocations(text: string): Promise<Location[]> {
-    const sampleText = text.slice(0, 8000);
+  // ── 角色汇总 ──
 
-    try {
-      const result = await LLMFactory.complete(
-        `分析以下小说片段，列出所有出现的地点/场景:\n\n${sampleText}\n\n请以 JSON 数组格式返回，格式: [{"name": "地点名", "description": "简短描述"}]`,
-        { temperature: 0.3, maxTokens: 1000 }
-      );
-
-      const jsonMatch = result.content.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        return parsed.map((l: Record<string, string>, i: number) => ({
-          id: `loc-ai-${i + 1}`,
-          name: l.name || `地点${i + 1}`,
-          description: l.description,
-        }));
+  private collectCharacters(chapters: NovelChapter[]): Character[] {
+    const map = new Map<string, number>();
+    for (const ch of chapters) {
+      for (const name of ch.characters) {
+        map.set(name, (map.get(name) || 0) + 1);
       }
-    } catch {
-      // LLM 不可用则返回空
     }
-
-    return [];
-  }
-
-  private async analyzeScenes(text: string, chapters: Chapter[]): Promise<Scene[]> {
-    return chapters.map((ch) => ({
-      chapter_index: ch.index,
-      heading: ch.title,
-      raw_text: text.slice(0, 1000),
-      characters: [],
-      locations: [],
+    let id = 0;
+    return [...map.entries()].map(([name, count]) => ({
+      id: `char-${++id}`,
+      name,
+      role: count > chapters.length * 0.5 ? '主角' : count > 2 ? '配角' : '龙套',
     }));
   }
 
+  // ── 全局摘要 ──
+
   private async generatePlotSummary(
-    text: string,
-    metadata: NormalizedNovel['metadata'],
-    chapters: Chapter[],
+    meta: NormalizedNovel['metadata'],
+    chapters: NovelChapter[],
     characters: Character[]
   ): Promise<string> {
+    const charNames = characters.slice(0, 10).map((c) => c.name).join('、');
+    const chTitles = chapters.slice(0, 10).map((c) => c.title).join('、');
+
     try {
       const result = await LLMFactory.complete(
-        `请用 2-3 句话概括以下小说的情节:\n标题: ${metadata.title}\n作者: ${metadata.author}\n章节: ${chapters.map(c => c.title).join('、')}\n角色: ${characters.slice(0, 10).map(c => c.name).join('、')}\n\n开头片段:\n${text.slice(0, 2000)}`,
+        `请用 2-3 句话概括以下小说的情节:\n标题: ${meta.title}\n作者: ${meta.author}\n主要角色: ${charNames}\n章节: ${chTitles}`,
         { temperature: 0.5, maxTokens: 500 }
       );
       return result.content.trim();
     } catch {
-      return `《${metadata.title}》，作者 ${metadata.author}。自动生成的情节摘要。请配置 LLM 以获取 AI 分析结果。`;
+      return `《${meta.title}》，作者 ${meta.author}。共 ${chapters.length} 章，${characters.length} 个角色。请配置 LLM 以获取 AI 摘要。`;
     }
   }
 }

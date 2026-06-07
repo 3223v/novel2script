@@ -50,6 +50,74 @@ export interface FileExtractor {
 }
 
 // ══════════════════════════════════════════════════════
+// 编码检测工具
+// ══════════════════════════════════════════════════════
+
+/**
+ * 自动检测文本编码并解码为 UTF-8 字符串。
+ *
+ * 检测顺序:
+ *   1. BOM 标记 (UTF-8 / UTF-16 LE / UTF-16 BE)
+ *   2. GBK/GB2312/GB18030 启发式检测
+ *   3. 默认 UTF-8
+ *
+ * @param buffer 原始字节
+ * @returns 解码后的字符串和检测到的编码名称
+ */
+function detectAndDecode(buffer: Buffer): { text: string; encoding: string } {
+  if (buffer.length === 0) return { text: '', encoding: 'utf-8' };
+
+  // 1. BOM 检测
+  if (buffer.length >= 3 && buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF) {
+    return { text: buffer.toString('utf-8', 3), encoding: 'utf-8-bom' };
+  }
+  if (buffer.length >= 2 && buffer[0] === 0xFF && buffer[1] === 0xFE) {
+    return { text: buffer.toString('utf16le', 2), encoding: 'utf-16le' };
+  }
+  if (buffer.length >= 2 && buffer[0] === 0xFE && buffer[1] === 0xFF) {
+    // UTF-16 BE: swap each 16-bit word to LE, then decode
+    const swapped = Buffer.alloc(buffer.length - 2);
+    for (let i = 2; i < buffer.length - 1; i += 2) {
+      swapped[i - 2] = buffer[i + 1];
+      swapped[i - 1] = buffer[i];
+    }
+    return { text: swapped.toString('utf16le'), encoding: 'utf-16be' };
+  }
+
+  // 2. UTF-8 有效性检查 — 如果整个文件是合法 UTF-8，直接返回
+  try {
+    const utf8 = buffer.toString('utf-8');
+    // 检查是否有替换字符 (U+FFFD) — 出现则表示无效 UTF-8 序列
+    if (!utf8.includes('�')) {
+      return { text: utf8, encoding: 'utf-8' };
+    }
+  } catch { /* fall through */ }
+
+  // 3. GBK/GB2312/GB18030 启发式检测
+  //    中文字符在 GBK 中通常以 0x81-0xFE 开头，后跟 0x40-0xFE
+  let gbkScore = 0;
+  for (let i = 0; i < buffer.length - 1; i++) {
+    const b1 = buffer[i];
+    const b2 = buffer[i + 1];
+    if (b1 >= 0x81 && b1 <= 0xFE && b2 >= 0x40 && b2 <= 0xFE) {
+      gbkScore++;
+      i++; // 跳过一个字节
+    }
+  }
+
+  // 如果高字节对比例超过 10%，判定为 GBK
+  if (gbkScore > buffer.length * 0.1) {
+    try {
+      const gbkText = buffer.toString('gbk' as BufferEncoding);
+      return { text: gbkText, encoding: 'gbk' };
+    } catch { /* fall through */ }
+  }
+
+  // 4. 兜底: UTF-8 (保留替换字符)
+  return { text: buffer.toString('utf-8'), encoding: 'utf-8' };
+}
+
+// ══════════════════════════════════════════════════════
 // TXT / 文本提取器
 // ══════════════════════════════════════════════════════
 
@@ -64,8 +132,8 @@ export class TextExtractor implements FileExtractor {
   }
 
   async extractFromBuffer(buffer: Buffer, fileName: string): Promise<ExtractedContent> {
-    const text = buffer.toString('utf-8');
-    return this.buildResult(text, fileName, buffer.length);
+    const decoded = detectAndDecode(buffer);
+    return this.buildResult(decoded.text, fileName, buffer.length, decoded.encoding);
   }
 
   async extractFromFile(filePath: string): Promise<ExtractedContent> {
@@ -73,14 +141,12 @@ export class TextExtractor implements FileExtractor {
     return this.extractFromBuffer(buffer, path.basename(filePath));
   }
 
-  private buildResult(text: string, fileName: string, size: number): ExtractedContent {
+  private buildResult(text: string, fileName: string, size: number, encoding?: string): ExtractedContent {
     const ext = path.extname(fileName).toLowerCase();
     let format: SupportedFormat = 'txt';
 
     if (ext === '.md') format = 'md';
     else if (ext === '.html' || ext === '.htm') format = 'html';
-
-    // 如果看起来像直接粘贴的文本
     if (!ext || ext === '') format = 'text';
 
     return {
@@ -88,7 +154,7 @@ export class TextExtractor implements FileExtractor {
       format,
       size,
       estimatedChars: text.replace(/\s/g, '').length,
-      metadata: { fileName },
+      metadata: { fileName, encoding: encoding || 'utf-8' },
     };
   }
 }

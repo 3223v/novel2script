@@ -1,5 +1,7 @@
 # Strategy Implementation Guide
 
+> **LLM 和向量数据库的详细配置指南**: 请参阅 [configuration.md](./configuration.md)
+
 This document details how to implement the two core algorithms. Currently both have working "default" strategies that return skeleton/placeholder output. The real implementations require integrating external services (LLM, vector DB, OCR).
 
 ---

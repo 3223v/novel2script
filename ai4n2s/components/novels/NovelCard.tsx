@@ -38,13 +38,25 @@ export default function NovelCard({ novel, selected, onClick, onDelete }: NovelC
               {novel.source_files.length} 个源文件
             </span>
             {novel.normalized_path && (
-              <Link
-                href={`/novels/${novel.id}`}
-                onClick={(e) => e.stopPropagation()}
-                className="text-xs text-gray-500 hover:text-black hover:underline"
-              >
-                查看结构化数据 →
-              </Link>
+              <>
+                <Link
+                  href={`/novels/${novel.id}/read`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-xs text-gray-500 hover:text-black hover:underline"
+                >
+                  阅读
+                </Link>
+                <Link
+                  href={`/novels/${novel.id}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-xs text-gray-400 hover:text-black hover:underline"
+                >
+                  编辑
+                </Link>
+              </>
+            )}
+            {!novel.normalized_path && (
+              <span className="text-xs text-gray-300">需先执行结构化分析</span>
             )}
           </div>
         </div>

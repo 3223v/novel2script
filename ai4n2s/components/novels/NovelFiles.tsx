@@ -103,7 +103,7 @@ export default function NovelFiles({ novelId, files, onUpdated }: NovelFilesProp
               variant="secondary"
               size="sm"
               disabled={structuring}
-              onClick={() => handleStructure('default')}
+              onClick={() => { setStructResult(null); setStructProgress(null); setShowStructModal(true); }}
             >
               {structuring ? '分析中...' : '📋 结构化'}
             </Button>

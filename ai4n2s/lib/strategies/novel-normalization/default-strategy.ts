@@ -1,21 +1,19 @@
-/**
- * 默认小说结构化策略
- *
- * 从 Novel 基本信息构建一个最小化的 NormalizedNovel。
- * 不做深度分析，只填充可用的元数据。
- * 用于快速初始化或作为其他策略的 fallback。
- */
-
 import type {
   NovelStructuringStrategy,
   NovelStructuringInput,
   StructuringProgress,
 } from '@/lib/pipeline/types';
-import type { NormalizedNovel, Character, Chapter, Scene } from '@/lib/types';
+import type { NormalizedNovel, NovelChapter } from '@/lib/types';
 
+/**
+ * 默认结构化策略
+ *
+ * 将原始文本按章节检测结果切分为章节数组。
+ * 每个章节保留其完整正文、摘要占位、以及该章涉及的角色/地点（空列表）。
+ */
 export class DefaultNovelStructuringStrategy implements NovelStructuringStrategy {
   readonly name = 'default';
-  readonly description = '默认结构化策略 — 仅从小说元数据构建基础 JSON，不做深度文本分析';
+  readonly description = '默认策略 — 按章节分割文本，保留完整正文，元数据来自小说基本信息';
 
   async execute(
     input: NovelStructuringInput,
@@ -23,88 +21,104 @@ export class DefaultNovelStructuringStrategy implements NovelStructuringStrategy
   ): Promise<NormalizedNovel> {
     const { novel, rawText } = input;
 
-    onProgress?.('start', '开始构建基础结构化数据...');
+    onProgress?.('start', '开始构建章节结构...');
 
-    // Step 1: 构建元数据
+    // 1. 元数据
     onProgress?.('metadata', '填充元数据...');
-    const metadata: NormalizedNovel['metadata'] = {
+    const metadata = {
       title: novel.title,
       author: novel.author || '未知',
       word_count: rawText ? rawText.replace(/\s/g, '').length : 0,
       analysis_date: Date.now(),
     };
 
-    // Step 2: 构建章节骨架 (如果有原始文本)
-    onProgress?.('chapters', '检测章节结构...');
-    const chapters = this.detectChapters(rawText);
+    // 2. 章节切分 — 核心步骤
+    onProgress?.('chapters', '检测并切分章节...');
+    const chapters = this.splitChapters(rawText || '', novel.title);
 
-    // Step 3: 从源文件名和基本信息推测角色
-    onProgress?.('characters', '构建角色占位...');
-    const characters: Character[] = [];
+    // 3. 情节摘要
+    onProgress?.('summary', '生成全书摘要...');
+    const plot_summary = `《${novel.title}》，作者 ${novel.author || '未知'}。共 ${chapters.length} 章，总计约 ${metadata.word_count.toLocaleString()} 字。`;
 
-    // Step 4: 构建场景骨架
-    onProgress?.('scenes', '构建场景骨架...');
-    const scenes: Scene[] = chapters.map((ch, i) => ({
-      chapter_index: ch.index,
-      heading: ch.title,
-      raw_text: rawText ? rawText.slice(0, 200) + '...' : '[待分析]',
-      characters: [],
-      locations: [],
-    }));
-
-    // Step 5: 情节摘要
-    onProgress?.('summary', '生成情节摘要...');
-    const plot_summary = novel.title
-      ? `《${novel.title}》的情节摘要待分析生成。作者: ${novel.author || '未知'}。包含 ${chapters.length} 个章节。`
-      : '情节摘要待分析生成。';
-
-    onProgress?.('done', '基础结构化完成');
+    onProgress?.('done', '章节结构构建完成');
 
     return {
       metadata,
-      characters,
-      locations: [],
+      characters: [],
       plot_summary,
       chapters,
-      scenes,
     };
   }
 
   /**
-   * 从原始文本中检测章节结构。
-   * 匹配模式: "第X章", "第X节", "Chapter X", 数字标题等
+   * 从原始文本中检测章节边界并切分。
+   *
+   * 支持的章节标题模式:
+   *   - "第X章" / "第X节" / "第X回"
+   *   - "Chapter X"
+   *   - 纯数字标题行（如 "1." "1、"）
+   *
+   * 如果未检测到任何章节标记，整段文本视为一个章节。
    */
-  private detectChapters(rawText?: string): Chapter[] {
-    if (!rawText) return [];
+  private splitChapters(text: string, fallbackTitle: string): NovelChapter[] {
+    if (!text || text.trim().length === 0) {
+      return [{
+        index: 0,
+        title: fallbackTitle,
+        summary: '待分析',
+        content: '',
+        characters: [],
+        locations: [],
+      }];
+    }
 
-    const chapters: Chapter[] = [];
+    // 尝试匹配中文章节标题
     const patterns = [
-      /第([一二三四五六七八九十百千]+|\d+)[章节回]/g,
-      /Chapter\s+\d+/gi,
-      /^\d+[\.、\s]/gm,
+      /(?:^|\n)\s*(第[一二三四五六七八九十百千\d]+[章节回])\s*[^\n]*/g,
+      /(?:^|\n)\s*(Chapter\s+\d+)\s*[^\n]*/gi,
+      /(?:^|\n)\s*(\d+[\.\、\s]\s*[^\n]{2,})/g,
     ];
 
-    // 使用第一个匹配的模式
+    let matches: Array<{ index: number; title: string }> = [];
+
     for (const pattern of patterns) {
-      const matches = rawText.match(pattern);
-      if (matches && matches.length > 1) {
-        matches.forEach((match, i) => {
-          chapters.push({
-            index: i,
-            title: match,
-            summary: `第 ${i + 1} 章节待分析`,
-          });
-        });
+      const found = [...text.matchAll(pattern)];
+      if (found.length > 1) {
+        matches = found.map((m) => ({
+          index: m.index!,
+          title: (m[1] || m[0]).trim(),
+        }));
         break;
       }
     }
 
-    // 如果没有检测到章节，创建一个默认章节
-    if (chapters.length === 0) {
-      chapters.push({
+    // 未检测到章节 — 整文为一个章节
+    if (matches.length === 0) {
+      return [{
         index: 0,
-        title: '全文',
-        summary: '未检测到章节结构',
+        title: fallbackTitle,
+        summary: '全文（未检测到分章标记）',
+        content: text,
+        characters: [],
+        locations: [],
+      }];
+    }
+
+    // 按章节标题位置切分
+    const chapters: NovelChapter[] = [];
+
+    for (let i = 0; i < matches.length; i++) {
+      const start = matches[i].index;
+      const end = i + 1 < matches.length ? matches[i + 1].index : text.length;
+      const chapterText = text.slice(start, end).trim();
+
+      chapters.push({
+        index: i,
+        title: matches[i].title,
+        summary: `第 ${i + 1} 章待分析`,
+        content: chapterText,
+        characters: [],
+        locations: [],
       });
     }
 
