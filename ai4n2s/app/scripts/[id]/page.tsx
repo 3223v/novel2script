@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
@@ -29,6 +29,9 @@ export default function ScriptDetailPage() {
   const [showGenModal, setShowGenModal] = useState(false);
   const [genStrategies, setGenStrategies] = useState<Array<{ name: string; description: string }>>([]);
   const [novels, setNovels] = useState<Array<{ id: string; title: string }>>([]);
+  const esRef = useRef<EventSource | null>(null);           // 持有 SSE 连接，跨弹窗生命周期
+  const modalDismissedRef = useRef(false);                  // 弹窗是否已被用户关掉
+  const [bgRunning, setBgRunning] = useState(false);        // 后台生成进行中
 
   const loadGenStrategies = () => {
     const nid = script?.novel_id;
@@ -221,45 +224,85 @@ export default function ScriptDetailPage() {
     setEditItemText('');
   };
 
-  // ── 生成 ──
-  const handleGenerate = async (strategy: string) => {
-    if (!script) return;
+  // ── 生成（SSE 流式 + 后台继续）──
+  const handleGenerate = (strategy: string) => {
+    if (!script?.novel_id) return;
+
+    // 清理上一次的 EventSource
+    esRef.current?.close();
+
+    modalDismissedRef.current = false;
     setGenerating(true);
+    setBgRunning(false);
     setShowGenModal(true);
-    setGenProgress('启动生成管线...');
+    setGenProgress('连接生成管线...');
 
-    try {
-      const timer = setInterval(() => {
-        setGenProgress((prev) => {
-          if (prev.includes('完成')) { clearInterval(timer); return prev; }
-          const stages = ['加载结构化数据...', `执行策略: ${strategy}...`, '逐场景生成内容...', '保存剧本...', '生成完成！'];
-          const idx = stages.findIndex(s => s === prev);
-          return stages[Math.min(idx + 1, stages.length - 1)];
-        });
-      }, 800);
+    const params = new URLSearchParams({ strategy, version: script.version || 'v1.0' });
+    const url = `/api/pipeline/scripts/${script.novel_id}/generate/stream?${params}`;
+    const es = new EventSource(url);
+    esRef.current = es;
 
-      const response = await fetch(`/api/pipeline/scripts/${script.novel_id}/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ strategy, version: script.version }),
-      });
+    let finished = false;
 
-      clearInterval(timer);
+    const cleanup = () => {
+      finished = true;
+      es.close();
+      esRef.current = null;
+      setBgRunning(false);
+    };
 
-      const result = await response.json();
-      if (result.success) {
-        setGenProgress('生成完成！正在刷新...');
+    es.addEventListener('progress', (e) => {
+      const data = JSON.parse(e.data) as { stage: string; detail: string };
+      setGenProgress(`[${data.stage}] ${data.detail}`);
+    });
+
+    es.addEventListener('complete', (e) => {
+      const data = JSON.parse(e.data) as { strategy: string; duration: number };
+      cleanup();
+      setGenProgress(`生成完成！（耗时 ${(data.duration / 1000).toFixed(1)} 秒）`);
+      setGenerating(false);
+
+      if (!modalDismissedRef.current) {
+        // 弹窗还在：短暂展示完成后关闭
         setTimeout(() => {
           setShowGenModal(false);
           fetchScript();
-        }, 1000);
+        }, 1500);
       } else {
-        setGenProgress(`失败: ${result.error}`);
+        // 弹窗已关闭（后台模式）：直接刷新数据
+        fetchScript();
       }
-    } catch (err) {
-      setGenProgress(`请求失败: ${(err as Error).message}`);
-    } finally {
+    });
+
+    es.addEventListener('error', (e) => {
+      cleanup();
       setGenerating(false);
+      try {
+        const data = JSON.parse((e as MessageEvent).data) as { error: string };
+        setGenProgress(`失败: ${data.error}`);
+      } catch {
+        setGenProgress('请求失败: 网络错误或服务器异常');
+      }
+    });
+
+    // EventSource 的连接错误（区别于业务 error 事件）
+    es.onerror = () => {
+      if (finished) return;
+      cleanup();
+      setGenerating(false);
+      setGenProgress('请求失败: 无法连接到生成服务');
+    };
+  };
+
+  /** 关闭弹窗但保持后台生成 */
+  const dismissModal = () => {
+    setShowGenModal(false);
+    if (generating && esRef.current) {
+      // 有关联的 EventSource → 后台继续
+      modalDismissedRef.current = true;
+      setBgRunning(true);
+    } else {
+      setGenProgress('');
     }
   };
 
@@ -330,6 +373,23 @@ export default function ScriptDetailPage() {
           </Button>
         </div>
       </div>
+
+      {/* 后台生成通知条 */}
+      {bgRunning && (
+        <div className="mb-4 p-3 border border-black bg-yellow-50 flex items-center justify-between">
+          <span className="text-sm font-mono">⏳ 剧本正在后台生成中，完成后将自动刷新页面...</span>
+          <button
+            onClick={() => {
+              esRef.current?.close();
+              esRef.current = null;
+              setBgRunning(false);
+            }}
+            className="text-xs text-gray-500 hover:text-red-700 border border-gray-300 px-2 py-1"
+          >
+            取消
+          </button>
+        </div>
+      )}
 
       {/* 标签页 */}
       <div className="flex gap-1 mb-6 border-b border-black">
@@ -575,14 +635,17 @@ export default function ScriptDetailPage() {
       )}
 
       {/* 剧本生成弹窗 */}
-      <Modal open={showGenModal} onClose={() => !generating && setShowGenModal(false)} title="生成剧本内容" size="md">
+      <Modal open={showGenModal} onClose={dismissModal} title="生成剧本内容" size="md">
         <div className="space-y-4">
           {genProgress && (
-            <div className={`p-3 border ${genProgress.includes('失败') ? 'border-red-700 bg-red-50' : genProgress.includes('完成') ? 'border-green-700 bg-green-50' : 'border-black bg-gray-50'}`}>
+            <div className={`p-3 border ${genProgress.includes('失败') ? 'border-red-700 bg-red-50' : genProgress.includes('刷新') || genProgress.includes('完成') ? 'border-green-700 bg-green-50' : 'border-black bg-gray-50'}`}>
               <p className="text-sm font-mono">{genProgress}</p>
+              {generating && (
+                <p className="text-xs text-gray-400 mt-2">关闭弹窗后生成将在后台继续，完成后自动刷新</p>
+              )}
             </div>
           )}
-          {!generating && !genProgress.includes('完成') && (
+          {!generating && !genProgress.includes('刷新') && !genProgress.includes('完成') && !genProgress.includes('失败') && (
             <div className="space-y-2">
               <p className="text-sm text-gray-500">选择生成策略:</p>
               {genStrategies.length > 0 ? (
@@ -601,11 +664,11 @@ export default function ScriptDetailPage() {
               )}
             </div>
           )}
-          {!generating && (
-            <div className="flex justify-end">
-              <Button variant="secondary" size="sm" onClick={() => { setShowGenModal(false); setGenProgress(''); }}>关闭</Button>
-            </div>
-          )}
+          <div className="flex justify-end">
+            <Button variant="secondary" size="sm" onClick={dismissModal}>
+              {generating ? '最小化（后台继续）' : '关闭'}
+            </Button>
+          </div>
         </div>
       </Modal>
     </div>
