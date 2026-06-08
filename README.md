@@ -1,3 +1,7 @@
+# 视频链接
+
+【七牛云-AI小说转剧本工具-ai4n2s】 https://www.bilibili.com/video/BV1mCEM6DE6U
+
 # AI4N2S — 小说转剧本系统
 
 基于 Next.js 16 + SQLite + YAML 构建的 AI 辅助小说转剧本数据管理系统。
@@ -15,6 +19,9 @@
 从小说源文件到结构化的小说，定义不同的策略完成解析，这一步主要靠代码，也提供LLM驱动的策略，进行增强
 剧本管理：剧本是一个对象，一个剧本可以关联一个小说，也可以不关联。其主要AI功能是从结构化的小说到剧本的映射算法，主要采用LLM驱动的工作流。根据有无配置向量数据库，可选RAG策略是否引入。不引入只用LLM进行驱动，引入则RAG增强，剧本更加完善
 
+## 下一步
+完善rag机制，彻底解决上下文不足，跨章节伏笔等长关联问题
+
 ## 快速开始
 
 ```bash
@@ -28,12 +35,7 @@ npm run dev     # 启动开发服务器
 
 ## 项目文档
 
-- [架构总览](docs/architecture.md) — 架构、目录、技术栈
-- [API 参考](docs/api.md) — 全部 API 端点
-- [数据模型](docs/data-model.md) — 数据库、JSON 结构、存储
-- [策略指南](docs/strategies.md) — 算法实现详解
-- [配置指南](docs/configuration.md) — LLM / 向量数据库 / OCR 配置
-- [EPUB 参考](docs/epub-strategy.md) — EPUB 解析参考实现
+- [ Schema 的设计原因](script-yaml-schema.md) — 架构、目录、技术栈
 
 ## 设计风格
 
